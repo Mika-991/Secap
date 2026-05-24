@@ -1,4 +1,4 @@
-# Ledger
+# Ledger 
 
 Security shift tracker with invoicing, worker payslips, and optional cloud sync.
 
