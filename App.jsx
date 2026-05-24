@@ -234,18 +234,7 @@ export default function App() {
     setSession(null);
   };
 
-  // ── Auth gate — show login if Supabase configured but not signed in ──
-  if (supabase && session === null && loaded) {
-    return <AuthScreen />;
-  }
-  if (supabase && session === undefined) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F8FAFC', fontFamily: 'Geist, system-ui, sans-serif' }}>
-        <div style={{ fontSize: 13, color: '#94A3B8', letterSpacing: '-0.01em' }}>Connecting…</div>
-      </div>
-    );
-  }
-
+  
   const cur = data.settings.currency || '£';
   const fmtMoney = (n) => `${cur}${(Number(n) || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -286,6 +275,19 @@ export default function App() {
       const float = paidOutToWorkers - receivedFromClients; // your out-of-pocket exposure right now
       return { owedByClients, owedToWorkers, paidOutToWorkers, receivedFromClients, float, overdueAmount, overdueCount };
     }, [data]);
+
+// ── Auth gate — show login if Supabase configured but not signed in ──
+  if (supabase && session === null && loaded) {
+    return <AuthScreen />;
+  }
+  if (supabase && session === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F8FAFC', fontFamily: 'Geist, system-ui, sans-serif' }}>
+        <div style={{ fontSize: 13, color: '#94A3B8', letterSpacing: '-0.01em' }}>Connecting…</div>
+      </div>
+    );
+  }
+
 
   // Mutations
   const upsertClient = (client) => {
