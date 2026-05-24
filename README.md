@@ -45,4 +45,4 @@ Build command: `npm run build` · Publish directory: `dist`
 
 ## Stack
 
-React 18 · Vite · Tailwind CSS · Supabase · Lucide React · Geist
+React 18 · Vite · Tailwind CSS · Supabase · Lucide React · Geist 
