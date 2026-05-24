@@ -141,12 +141,12 @@ async function loadLocal() {
   try {
     const r = await localAdapter.get(STORAGE_KEY);
     if (r && r.value) return migrate(JSON.parse(r.value));
-  } catch {}
+  } catch (err) { console.error(err); }
   return defaultData;
 }
 
 async function saveLocal(data) {
-  try { await localAdapter.set(STORAGE_KEY, JSON.stringify(data)); } catch {}
+  try { await localAdapter.set(STORAGE_KEY, JSON.stringify(data)); } catch (err) { console.error(err); }
 }
 
 // ---------- Main App ----------
@@ -160,6 +160,15 @@ export default function App() {
   const [session, setSession] = useState(undefined); // undefined = checking, null = not logged in
   const [syncStatus, setSyncStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
   const saveTimer = useRef(null);
+  // Cleanup save timer
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+      }
+    };
+  }, []);
+
 
   // ── Auth listener (only when Supabase is configured) ──
   useEffect(() => {
@@ -190,7 +199,7 @@ export default function App() {
         .maybeSingle();
       if (row?.data) setData(migrate(row.data));
       else setData(defaultData);
-    } catch {}
+    } catch (err) { console.error(err); }
     setLoaded(true);
   };
 
@@ -215,7 +224,7 @@ export default function App() {
     } else {
       saveLocal(data);
     }
-  }, [data, loaded]);
+  }, [data, loaded, session]);
 
   // ── Sign out ──
   const handleSignOut = async () => {
@@ -239,6 +248,44 @@ export default function App() {
 
   const cur = data.settings.currency || '£';
   const fmtMoney = (n) => `${cur}${(Number(n) || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Computed totals
+    const totals = useMemo(() => {
+      let owedByClients = 0;
+      let owedToWorkers = 0;
+      let paidOutToWorkers = 0;
+      let receivedFromClients = 0;
+      let overdueAmount = 0;
+      let overdueCount = 0;
+      const today = todayISO();
+  
+      for (const s of data.shifts) {
+        const site = data.sites.find(x => x.id === s.siteId);
+        const workerCharge = (Number(s.hours) || 0) * (Number(s.workerRate) || 0);
+        const clientCharge = (Number(s.hours) || 0) * (Number(s.clientRate) || 0);
+  
+        if (!s.clientPaid) {
+          owedByClients += clientCharge;
+          const dueDays = site ? Number(site.paymentTermsDays || 0) : 0;
+          const dueDate = addDays(s.date, dueDays);
+          if (dueDate < today) {
+            overdueAmount += clientCharge;
+            overdueCount += 1;
+          }
+        } else {
+          receivedFromClients += clientCharge;
+        }
+  
+        if (!s.workerPaid) {
+          owedToWorkers += workerCharge;
+        } else {
+          paidOutToWorkers += workerCharge;
+        }
+      }
+  
+      const float = paidOutToWorkers - receivedFromClients; // your out-of-pocket exposure right now
+      return { owedByClients, owedToWorkers, paidOutToWorkers, receivedFromClients, float, overdueAmount, overdueCount };
+    }, [data]);
 
   // Mutations
   const upsertClient = (client) => {
@@ -441,43 +488,7 @@ export default function App() {
     setData(d => ({ ...d, settings: { ...d.settings, ...patch } }));
   };
 
-  // Computed totals
-  const totals = useMemo(() => {
-    let owedByClients = 0;
-    let owedToWorkers = 0;
-    let paidOutToWorkers = 0;
-    let receivedFromClients = 0;
-    let overdueAmount = 0;
-    let overdueCount = 0;
-    const today = todayISO();
-
-    for (const s of data.shifts) {
-      const site = data.sites.find(x => x.id === s.siteId);
-      const workerCharge = (Number(s.hours) || 0) * (Number(s.workerRate) || 0);
-      const clientCharge = (Number(s.hours) || 0) * (Number(s.clientRate) || 0);
-
-      if (!s.clientPaid) {
-        owedByClients += clientCharge;
-        const dueDays = site ? Number(site.paymentTermsDays || 0) : 0;
-        const dueDate = addDays(s.date, dueDays);
-        if (dueDate < today) {
-          overdueAmount += clientCharge;
-          overdueCount += 1;
-        }
-      } else {
-        receivedFromClients += clientCharge;
-      }
-
-      if (!s.workerPaid) {
-        owedToWorkers += workerCharge;
-      } else {
-        paidOutToWorkers += workerCharge;
-      }
-    }
-
-    const float = paidOutToWorkers - receivedFromClients; // your out-of-pocket exposure right now
-    return { owedByClients, owedToWorkers, paidOutToWorkers, receivedFromClients, float, overdueAmount, overdueCount };
-  }, [data]);
+  
 
   if (!loaded) {
     return (
@@ -971,7 +982,13 @@ function ThisMonthCard({ ctx }) {
   const monthName = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
   const stats = useMemo(() => {
-    let earned = 0, paidOut = 0, hours = 0, count = 0, unpaidByClient = 0, unpaidToWorker = 0;
+    let earned = 0;
+    let paidOut = 0;
+    let hours = 0;
+    let count = 0;
+    let unpaidByClient = 0;
+    let unpaidToWorker = 0;
+    let unassigned = 0;
     for (const s of data.shifts) {
       const d = new Date(s.date + 'T00:00:00');
       if (d.getFullYear() !== year || d.getMonth() !== month) continue;
@@ -984,6 +1001,7 @@ function ThisMonthCard({ ctx }) {
       count += 1;
       if (!s.clientPaid) unpaidByClient += charge;
       if (!s.workerPaid) unpaidToWorker += pay;
+      if (!s.workerId) unassigned += 1;
     }
     return { earned, paidOut, hours, count, margin: earned - paidOut, unpaidByClient, unpaidToWorker };
   }, [data, year, month]);
