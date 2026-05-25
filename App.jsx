@@ -1514,6 +1514,7 @@ function CalendarView({ ctx }) {
   const [month, setMonth] = useState(today.getMonth());
   const [mode, setMode] = useState('month'); // 'month' | 'year'
   const [activeTemplateId, setActiveTemplateId] = useState(null);
+  const [calendarMode, setCalendarMode] = useState('add'); // 'add' | 'remove'
 
   const templates = data.shiftTemplates;
   const monthName = new Date(year, month, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -1583,18 +1584,15 @@ function CalendarView({ ctx }) {
 
   const handleCellTap = (iso) => {
     if (!activeTemplateId) {
-      // No template active — open day detail / new shift for this date
       setModal({ type: 'shift', id: undefined, prefillDate: iso });
       return;
     }
     const activeTemplate = templates.find(t => t.id === activeTemplateId);
     if (!activeTemplate) return;
-    const existing = (shiftsByDate.get(iso) || []).filter(s => s.templateId === activeTemplateId);
-    if (existing.length > 0) {
-      // Tap again = remove last
-      removeLastShiftFromTemplate(activeTemplateId, iso);
-    } else {
+    if (calendarMode === 'add') {
       createShiftFromTemplate(activeTemplate, iso);
+    } else {
+      removeLastShiftFromTemplate(activeTemplateId, iso);
     }
   };
 
@@ -1720,7 +1718,7 @@ function CalendarView({ ctx }) {
           {/* Month grid */}
           <div className="grid grid-cols-7 gap-0.5 mb-4">
             {cells.map((c, i) => {
-              if (!c) return <div key={i} className="rounded-md" style={{ minHeight: 56 }}></div>;
+              if (!c) return <div key={i} className="rounded-md" style={{ minHeight: 90 }}></div>;
               const isToday = c.iso === todayISO();
               const dayShifts = shiftsByDate.get(c.iso) || [];
               const isWeekend = c.weekday === 0 || c.weekday === 6;
@@ -1732,7 +1730,7 @@ function CalendarView({ ctx }) {
                   className={`rounded-md p-1 cursor-pointer transition-colors ${
                     isToday ? 'ring-2 ring-black ring-inset' : ''
                   } ${activeTemplateId ? 'hover:bg-stone-100' : 'hover:bg-stone-50'}`}
-                  style={{ minHeight: 56, backgroundColor: isToday ? '#F5F5F4' : undefined }}
+                  style={{ minHeight: 90, backgroundColor: isToday ? '#F5F5F4' : undefined }}
                 >
                   <div className={`text-[11px] font-medium mb-0.5 ${
                     isToday ? 'ink' : isWeekend ? 'ink-muted' : 'ink'
@@ -1778,31 +1776,57 @@ function CalendarView({ ctx }) {
                 No templates yet. Tap here to add your first one.
               </button>
             ) : (
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {templates.map(tmpl => {
-                  const site = data.sites.find(s => s.id === tmpl.siteId);
-                  const color = paletteAt(tmpl.colorIndex || 0);
-                  const label = tmpl.label || site?.name || '?';
-                  const isActive = activeTemplateId === tmpl.id;
-                  return (
+              <div className="space-y-3">
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {templates.map(tmpl => {
+                    const site = data.sites.find(s => s.id === tmpl.siteId);
+                    const color = paletteAt(tmpl.colorIndex || 0);
+                    const label = tmpl.label || site?.name || '?';
+                    const isActive = activeTemplateId === tmpl.id;
+                    return (
+                      <button
+                        key={tmpl.id}
+                        onClick={() => { setActiveTemplateId(isActive ? null : tmpl.id); setCalendarMode('add'); }}
+                        onContextMenu={(e) => { e.preventDefault(); setModal({ type: 'shift-template', id: tmpl.id }); }}
+                        className="flex-shrink-0 px-3 py-2 rounded-lg text-left transition-all"
+                        style={{
+                          backgroundColor: color.bg,
+                          color: color.text,
+                          outline: isActive ? `2px solid ${color.border}` : 'none',
+                          outlineOffset: 2,
+                          boxShadow: isActive ? `0 0 0 1px ${color.border}` : 'none'
+                        }}
+                      >
+                        <div className="text-xs font-semibold">{label}</div>
+                        <div className="text-[10px] opacity-70 tabular mt-0.5">{tmpl.startTime} – {tmpl.endTime}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {activeTemplateId && (
+                  <div className="flex items-center gap-2 pt-2 border-t card-border flex-wrap">
+                    <span className="text-[11px] ink-muted">Tap days to:</span>
                     <button
-                      key={tmpl.id}
-                      onClick={() => setActiveTemplateId(isActive ? null : tmpl.id)}
-                      onContextMenu={(e) => { e.preventDefault(); setModal({ type: 'shift-template', id: tmpl.id }); }}
-                      className="flex-shrink-0 px-3 py-2 rounded-lg text-left transition-all"
-                      style={{
-                        backgroundColor: color.bg,
-                        color: color.text,
-                        outline: isActive ? `2px solid ${color.border}` : 'none',
-                        outlineOffset: 2,
-                        boxShadow: isActive ? `0 0 0 1px ${color.border}` : 'none'
-                      }}
+                      onClick={() => setCalendarMode('add')}
+                      className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${calendarMode === 'add' ? 'success-bg-soft success' : 'card-border ink-muted hover:ink'}`}
                     >
-                      <div className="text-xs font-semibold">{label}</div>
-                      <div className="text-[10px] opacity-70 tabular mt-0.5">{tmpl.startTime} – {tmpl.endTime}</div>
+                      + Add shift
                     </button>
-                  );
-                })}
+                    <button
+                      onClick={() => setCalendarMode('remove')}
+                      className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${calendarMode === 'remove' ? 'warning-bg-soft warning' : 'card-border ink-muted hover:ink'}`}
+                    >
+                      − Remove shift
+                    </button>
+                    <button
+                      onClick={() => { setActiveTemplateId(null); setCalendarMode('add'); }}
+                      className="text-xs px-3 py-1.5 rounded-md card-border ink-muted hover:ink ml-auto"
+                    >
+                      ✕ Done
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1821,22 +1845,25 @@ function ShiftChip({ shift, templates, sites, workers, onClick }) {
   const worker = workers.find(w => w.id === shift.workerId);
   const color = template ? paletteAt(template.colorIndex || 0) : { bg: '#E7E5E4', text: '#525252', border: '#A3A3A3' };
   const label = template?.label || site?.name || '?';
-  const abbreviation = label.length <= 4 ? label : label.slice(0, 4);
-  const unassigned = !shift.workerId;
+  const workerDisplay = worker
+    ? (worker.name.split(' ')[0].length <= 8 ? worker.name.split(' ')[0] : worker.name.split(' ').map(n => n[0]).join(''))
+    : null;
 
   return (
     <div
-      className="relative rounded text-[9px] font-semibold px-1 py-0.5 truncate cursor-pointer leading-tight"
+      className="relative rounded px-1 py-0.5 cursor-pointer leading-tight"
       style={{ backgroundColor: color.bg, color: color.text }}
       onClick={onClick}
       title={`${label} · ${shift.hours}h · ${worker?.name || 'Unassigned'}`}
     >
-      {abbreviation}
-      {unassigned && (
-        <span
-          className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-red-500 translate-x-0.5 -translate-y-0.5"
-          title="No worker assigned"
-        />
+      <div className="text-[9px] font-semibold truncate">{label}</div>
+      {workerDisplay ? (
+        <div className="text-[8px] opacity-75 truncate">{workerDisplay}</div>
+      ) : (
+        <div className="flex items-center gap-0.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block flex-shrink-0" />
+          <span className="text-[8px] opacity-80">No worker</span>
+        </div>
       )}
     </div>
   );
